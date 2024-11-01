@@ -25,6 +25,9 @@ struct {
 Player player;
 Enemy enemies[NUM_ENEMIES];
 Ray rays[NUM_RAYS];
+RayHit *rayHits = NULL;
+int numRayHits = 0;
+int maxRayHits = 0;
 
 //////////////// SETUP ////////////////
 static bool initState(void) {
@@ -116,19 +119,6 @@ static Vector2 moveObject(float x, float y, float dx, float dy) {
     return (Vector2){x, y};
 }
 
-static void movePlayer(float dx, float dy) {
-    float newX = player.x + dx;
-    float newY = player.y + dy;
-
-    // Check for collision before updating position
-    if (!isColliding(newX, player.y)) {
-        player.x = newX;
-    }
-    if (!isColliding(player.x, newY)) {
-        player.y = newY;
-    }
-}
-
 static void processInput() {
     const Uint8 *keyState = SDL_GetKeyboardState(NULL);
     if (!keyState) return;
@@ -163,6 +153,14 @@ static void processInput() {
 //////////////// PROCESS INPUT ////////////////
 
 //////////////// GAME LOGIC ////////////////
+static void clearObjectMap(void) {
+    for (int i = 0; i < MAP_WIDTH; ++i) {
+        for (int j = 0; j < MAP_HEIGHT; j++) {
+            objectMap[i][j] = TILE_EMPTY;
+        }
+    }
+}
+
 static void updateEnemies(void) {
     for (int i = 0; i < NUM_ENEMIES; ++i) {
         if (!enemies[i].health > 0) continue;
@@ -187,6 +185,7 @@ static void updateEnemies(void) {
         // Update the enemy's position
         enemies[i].x = updatedPos.x;
         enemies[i].y = updatedPos.y;
+        objectMap[(int)(enemies[i].x / TILE_SIZE)][(int)(enemies[i].y / TILE_SIZE)] = TILE_ENEMY;
     }
 }
 
@@ -194,19 +193,15 @@ static void castRays() {
     float angleStep = FOV / NUM_RAYS;
     float angle = player.theta - (FOV * 0.5);
 
+    numRayHits = 0;
+
     for (int i = 0; i < NUM_RAYS; ++i) {
         float rayX = player.x;
         float rayY = player.y;
         float rayLength = 0;
         float step = 0.5f;
 
-        bool hit = false;
-        bool hitEnemy = false;
-        float wallDistance = 0;
-        float enemyDistance = 0;
-        int hitIndex = -1;
-
-        while (!hit && !hitEnemy) {
+        while (true) {
             rayX += cos(angle) * step;
             rayY += sin(angle) * step;
             rayLength += step;
@@ -218,60 +213,47 @@ static void castRays() {
             int mapX = (int)(rayX / TILE_SIZE);
             int mapY = (int)(rayY / TILE_SIZE);
 
+
+            // Check wall hit
             if (map[mapX][mapY] == TILE_WALL) {
-                hit = true;
-                wallDistance = rayLength;
-                hitIndex = -1;
-                break;
                 // float hitX = rayX - player.x;
                 // float hitY = rayY - player.y;
                 // rays[i].x = sqrtf(hitX * hitX + hitY * hitY);
-                // rays[i].y = angle;
-                // rays[i].hitType = TILE_WALL;
-                // break;
+                rays[i].x = rayLength;
+                rays[i].y = angle;
+                break;
             } 
-            // else if (map[mapX][mapY] == TILE_ENEMY) {
-            //     float hitX = rayX - player.x;
-            //     float hitY = rayY - player.y;
-            //     rays[i].x = sqrtf(hitX * hitX + hitY * hitY);
-            //     rays[i].y = angle;
-            //     rays[i].hitType = TILE_ENEMY;
-            //     break;
-            // }
 
-            for (int j = 0; j < NUM_ENEMIES; ++j) {
-                if (!enemies[j].health > 0) continue;
-                float enemyDistX = enemies[j].x - rayX;
-                float enemyDistY = enemies[j].y - rayY;
-                float enemyDist = sqrtf(enemyDistX * enemyDistX + enemyDistY * enemyDistY);
-
-                if (enemyDist < step) {
-                    hitEnemy = true;
-                    enemyDistance = rayLength;
-                    hitIndex = j;
-                    break;
+            if (objectMap[mapX][mapY] == TILE_ENEMY) {
+                for (int j = 0; j < NUM_ENEMIES; j++) {
+                    if (!enemies[j].health > 0) continue;
+                    float left = enemies[j].x - ENEMY_WIDTH / 2;
+                    float right = enemies[j].x + ENEMY_WIDTH / 2;
+                    float top = enemies[j].y - ENEMY_HEIGHT / 2;
+                    float bottom = enemies[j].y + ENEMY_HEIGHT / 2;
+                    if (rayX >= left && rayX <= right && rayY >= top && rayY <= bottom) {
+                        if (numRayHits >= maxRayHits) {
+                            maxRayHits = maxRayHits ? maxRayHits * 2 : 16;
+                            rayHits = realloc(rayHits, maxRayHits * sizeof(RayHit));
+                        }
+                        rayHits[numRayHits].distance = rayLength;
+                        rayHits[numRayHits].height = ENEMY_HEIGHT / rayLength;
+                        rayHits[numRayHits].angle = angle;
+                        rayHits[numRayHits].hitType = HIT_ENEMY;
+                        rayHits[numRayHits].hitIndex = j;
+                        numRayHits++;
+                    }
                 }
             }
         }
 
-        if (hitEnemy) {
-            rays[i].x = enemyDistance;
-            rays[i].hitType = HIT_ENEMY;
-        } else if (hit) {
-            rays[i].x = rayLength;
-            rays[i].hitType = HIT_WALL;
-        } else {
-            rays[i].x = rayLength;
-            rays[i].hitType = HIT_NONE;
-        }
-
         rays[i].y = angle;
-
         angle += angleStep;
     }
 }
 
 static void update(void) {
+    clearObjectMap();
     updateEnemies();
     castRays();
 }
@@ -280,13 +262,7 @@ static void update(void) {
 //////////////// RENDERING ////////////////
 static void drawWalls(void) {
     for (int i = 0; i < NUM_RAYS; ++i) {
-        if (rays[i].hitType == HIT_WALL) {
-            SDL_SetRenderDrawColor(state.renderer, COLOR_WALL.r, COLOR_WALL.g, COLOR_WALL.b, COLOR_WALL.a);
-        } else if (rays[i].hitType == HIT_ENEMY) {
-            SDL_SetRenderDrawColor(state.renderer, COLOR_ENEMY.r, COLOR_ENEMY.g, COLOR_ENEMY.b, COLOR_ENEMY.a);
-        } else {
-            continue;
-        }
+        SDL_SetRenderDrawColor(state.renderer, COLOR_WALL.r, COLOR_WALL.g, COLOR_WALL.b, COLOR_WALL.a);
         float wallHeight = (WINDOW_HEIGHT * TILE_SIZE) / (rays[i].x * cos(rays[i].y - player.theta));
         SDL_RenderDrawLine(state.renderer, i, (WINDOW_HEIGHT - wallHeight) * 0.5, i, (WINDOW_HEIGHT + wallHeight) * 0.5);
     }
@@ -314,13 +290,49 @@ static void drawDebug() {
     drawEnemies();
 }
 
+static int compareRayHits(const void *a, const void *b) {
+    RayHit *hitA = (RayHit *)a;
+    RayHit *hitB = (RayHit *)b;
+    return (hitA->distance - hitB->distance);
+}
+
+static void drawRayHits() {
+    qsort(rayHits, numRayHits, sizeof(RayHit), compareRayHits);
+
+    for (int i = 0; i < numRayHits; i++) {
+        if (rayHits[i].hitType == HIT_ENEMY) {
+            SDL_SetRenderDrawColor(state.renderer, COLOR_ENEMY.r, COLOR_ENEMY.g, COLOR_ENEMY.b, COLOR_ENEMY.a);
+
+            // Perspective scaling
+            float objHeight = (WINDOW_HEIGHT * TILE_SIZE) / (rayHits[i].distance * cos(rayHits[i].angle - player.theta));
+            float objWidth = objHeight * (ENEMY_WIDTH / ENEMY_HEIGHT);  // Scale width relative to height
+
+            // Calculate screenX position in relation to player’s view
+            float relativeAngle = rayHits[i].angle - player.theta;
+            int screenX = (relativeAngle / FOV) * WINDOW_WIDTH + (WINDOW_WIDTH / 2);
+
+            // Define the rectangle for the enemy
+            SDL_Rect enemyRect;
+            enemyRect.x = screenX - (objWidth / 2);               // Center the rectangle horizontally
+            enemyRect.y = (WINDOW_HEIGHT - objHeight) * 0.5;      // Center vertically based on height
+            enemyRect.w = objWidth;
+            enemyRect.h = objHeight;
+
+            // Render the rectangle
+            SDL_RenderFillRect(state.renderer, &enemyRect);
+        }
+    }
+}
+
+
 static void render(void) {
     SDL_SetRenderDrawColor(state.renderer, COLOR_BLACK.r, COLOR_BLACK.g, COLOR_BLACK.b, COLOR_BLACK.a);
     SDL_RenderClear(state.renderer);
 
     // Render environment and player
     drawWalls();
-    drawDebug();
+    // drawDebug();
+    drawRayHits();
 
     SDL_RenderPresent(state.renderer);
 }

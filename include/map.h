@@ -25,5 +25,9 @@ int map[MAP_WIDTH][MAP_HEIGHT] = {
     {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
 };
 
+int objectMap[MAP_WIDTH][MAP_HEIGHT] = {
+    {0}
+};
+
 
 #endif // MAP_H

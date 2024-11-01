@@ -33,4 +33,12 @@ typedef struct {
     int hitIndex;
 } Ray;
 
+typedef struct {
+    float distance;
+    float height;
+    float angle;
+    int hitType;
+    int hitIndex;
+} RayHit;
+
 #endif // STRUCTS_H

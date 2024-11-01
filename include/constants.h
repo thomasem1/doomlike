@@ -22,9 +22,15 @@
 #define NUM_RAYS WINDOW_WIDTH
 
 // Enemies
-#define NUM_ENEMIES 1
+#define NUM_ENEMIES 10
+#define ENEMY_WIDTH 10
+#define ENEMY_HEIGHT 10
 #define ENEMY_SPEED 30
 #define ENEMY_ROTATION_SPEED 0.05
+
+// // Raycasting
+// #define MAX_HITS 80
+// #define MAX_RAY_LENGTH 1000
 
 // Colors
 #define COLOR_RED   (SDL_Color){255, 0, 0, 255}
